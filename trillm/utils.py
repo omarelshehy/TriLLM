@@ -71,3 +71,44 @@ def triton_sin(A):
   M, N = A.shape
   triton_sine_kernel[triton.cdiv(A.shape[0], 8) , triton.cdiv(A.shape[1], 8)](A, B, M, N,stride_ax=A.stride(0), stride_ay=A.stride(1), BLOCK_SIZE_A=8)
   return B
+
+
+@triton.jit
+def ewm(A, B, C, M, BLOCK_SIZE_M: tl.constexpr):
+    # extract metaparameters
+    pid = tl.program_id(axis=0)
+
+    pid_m = pid * BLOCK_SIZE_M
+    offsets = pid_m + tl.arange(0, BLOCK_SIZE_M)
+    ptr_a = A
+    ptr_b = B
+    ptr_c = C
+    mask = offsets < M
+    a = tl.load(ptr_b + offsets,mask=mask)
+    b = tl.load(ptr_a + offsets,mask=mask)
+    acc = a * b
+    tl.store(ptr_c + offsets, acc, mask=mask)
+
+def ewm_triton(a, b):
+    # Check if matices are brodcastable
+    if a.shape != b.shape[0]:
+      try:
+        b = b.broadcast_to(a.shape)
+        final_shape = a.shape
+      except Exception as e:
+          try:
+            a = a.broadcast_to(b.shape)
+            final_shape = b.shape
+          except:
+            raise ValueError("Matrices are not brodcastable")
+    else:
+        final_shape = a.shape
+    #flatten to 1d
+    a_flattend = a.flatten()
+    b_flattend = b.flatten()
+    M = a_flattend.shape[0]
+    c = torch.empty_like(a_flattend,device=a.device, dtype=torch.float32)
+    grid = lambda META: (triton.cdiv(a_flattend.shape[0], 16), )
+    ewm[grid](a_flattend, b_flattend, c, M, BLOCK_SIZE_M = 16)
+
+    return c.reshape(final_shape)
