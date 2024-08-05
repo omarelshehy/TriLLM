@@ -3,7 +3,7 @@ import triton.language as tl
 import torch
 
 @triton.jit
-def flash_attn_kernel_2(Q, K, V, Out, m_m, l, B, H, M, N, stride_qb, stride_qh, stride_qm, stride_qd,
+def flash_attn_kernel(Q, K, V, Out, m_m, l, B, H, M, N, stride_qb, stride_qh, stride_qm, stride_qd,
                       stride_kb, stride_kh, stride_kn, stride_kd, stride_vb, stride_vh, stride_vn, stride_vd,
                       stride_ob, stride_oh, stride_om, stride_od, stride_mm, stride_l, sm_scale,
                       BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, D: tl.constexpr):
@@ -62,7 +62,7 @@ def flash_attn_kernel_2(Q, K, V, Out, m_m, l, B, H, M, N, stride_qb, stride_qh, 
     tl.store(l, l_i)
     tl.store(m_m, m_i)
 
-def flash_attn_triton_2(Q, K, V):
+def flash_attn_triton(Q, K, V):
     assert Q.shape[-1] == K.shape[-1] == V.shape[-1], "incompatible dimensions"
     B, H, M, D = Q.shape
     _, _, N, _ = K.shape
