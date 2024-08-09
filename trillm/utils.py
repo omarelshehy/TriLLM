@@ -31,11 +31,11 @@ def triton_cosine_kernel(A, B, M, N, stride_ax, stride_ay, BLOCK_SIZE_A: tl.cons
     tl.store(addr_B, acc_cos, mask=mask)
 
 def triton_cos(A):
-  B = torch.zeros(A.shape).to('cuda')
-  grid = lambda META: (triton.cdiv(A.shape[0], META['BLOCK_SIZE_A']) * triton.cdiv(A.shape[1], META['BLOCK_SIZE_A']))
-  M, N = A.shape
-  triton_cosine_kernel[grid](A, B, M, N,stride_ax=A.stride(0), stride_ay=A.stride(1), BLOCK_SIZE_A=8)
-  return B
+    B = torch.zeros(A.shape,dtype=A.dtype).to('cuda')
+    grid = lambda META: (triton.cdiv(A.shape[0], META['BLOCK_SIZE_A']) * triton.cdiv(A.shape[1], META['BLOCK_SIZE_A']))
+    M, N = A.shape
+    triton_cosine_kernel[grid](A, B, M, N,stride_ax=A.stride(0), stride_ay=A.stride(1), BLOCK_SIZE_A=8)
+    return B
 
 @triton.jit
 def triton_sine_kernel(A, B, M, N, stride_ax, stride_ay, BLOCK_SIZE_A: tl.constexpr):
@@ -66,15 +66,15 @@ def triton_sine_kernel(A, B, M, N, stride_ax, stride_ay, BLOCK_SIZE_A: tl.conste
     tl.store(addr_B, acc_cos, mask=mask)
 
 def triton_sin(A):
-  B = torch.zeros(A.shape).to('cuda')
-  grid = lambda META: (triton.cdiv(A.shape[0], META['BLOCK_SIZE_A']) * triton.cdiv(A.shape[1], META['BLOCK_SIZE_A']))
-  M, N = A.shape
-  triton_sine_kernel[triton.cdiv(A.shape[0], 8) , triton.cdiv(A.shape[1], 8)](A, B, M, N,stride_ax=A.stride(0), stride_ay=A.stride(1), BLOCK_SIZE_A=8)
-  return B
+    B = torch.zeros(A.shape,dtype=A.dtype).to('cuda')
+    grid = lambda META: (triton.cdiv(A.shape[0], META['BLOCK_SIZE_A']) * triton.cdiv(A.shape[1],META['BLOCK_SIZE_A']))
+    M, N = A.shape
+    triton_sine_kernel[triton.cdiv(A.shape[0], 8) , triton.cdiv(A.shape[1], 8)](A, B, M, N,stride_ax=A.stride(0), stride_ay=A.stride(1), BLOCK_SIZE_A=8)
+    return B
 
 
 @triton.jit
-def ewm(A, B, C, M, BLOCK_SIZE_M: tl.constexpr):
+def ewm(A, B, C, M, ACTIVATION: tl.constexpr, BLOCK_SIZE_M: tl.constexpr):
     # extract metaparameters
     pid = tl.program_id(axis=0)
 
@@ -87,28 +87,32 @@ def ewm(A, B, C, M, BLOCK_SIZE_M: tl.constexpr):
     a = tl.load(ptr_b + offsets,mask=mask)
     b = tl.load(ptr_a + offsets,mask=mask)
     acc = a * b
+    if ACTIVATION == "silu":
+        acc = acc.to(tl.float32) * tl.sigmoid(acc.to(tl.float32))
     tl.store(ptr_c + offsets, acc, mask=mask)
 
-def ewm_triton(a, b):
+def ewm_triton(a, b, activation=""):
     # Check if matices are brodcastable
-    if a.shape != b.shape[0]:
-      try:
-        b = b.broadcast_to(a.shape)
-        final_shape = a.shape
-      except Exception as e:
-          try:
-            a = a.broadcast_to(b.shape)
-            final_shape = b.shape
-          except:
-            raise ValueError("Matrices are not brodcastable")
+    if a.shape != b.shape:
+        try:
+            b = b.broadcast_to(a.shape)
+            final_shape = a.shape
+        except Exception as e:
+            try:
+                a = a.broadcast_to(b.shape)
+                final_shape = b.shape
+            except:
+                raise ValueError("Matrices are not brodcastable")
     else:
         final_shape = a.shape
     #flatten to 1d
     a_flattend = a.flatten()
     b_flattend = b.flatten()
     M = a_flattend.shape[0]
-    c = torch.empty_like(a_flattend,device=a.device, dtype=torch.float32)
+    c = torch.empty_like(a_flattend,device=a.device, dtype=a.dtype)
+    if activation:
+        assert activation == 'silu', "only silu is available"  
     grid = lambda META: (triton.cdiv(a_flattend.shape[0], 16), )
-    ewm[grid](a_flattend, b_flattend, c, M, BLOCK_SIZE_M = 16)
+    ewm[grid](a_flattend, b_flattend, c, M, ACTIVATION = activation, BLOCK_SIZE_M = 16)
 
-    return c.reshape(final_shape)
+    return c.reshape(final_shape).to(a.dtype)
