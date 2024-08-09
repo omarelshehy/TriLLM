@@ -166,7 +166,7 @@ def mm_triton_2d(a, b, activation=""):
 
 @triton.jit
 def matmul_3d(A, B, C, M, N, K, stride_am, stride_ak, stride_bk, stride_bn, stride_cm, stride_cn,
-              BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
+              activation, BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
               GROUP_SIZE_M: tl.constexpr):
     pid = tl.program_id(axis=0)
     pid_batch = tl.program_id(axis=1)
@@ -201,6 +201,8 @@ def matmul_3d(A, B, C, M, N, K, stride_am, stride_ak, stride_bk, stride_bn, stri
         acc += tl.dot(a, b)
         A += BLOCK_SIZE_K * stride_ak
         B += BLOCK_SIZE_K * stride_bk
+    if activation:
+        acc *= tl.sigmoid(acc)
 
     C = C + rc + (rm[:, None] * stride_cm + rn[None, :] * stride_cn)
     mask = (rm[:, None] < M) & (rn[None, :] < N)
@@ -210,24 +212,29 @@ def matmul_3d(A, B, C, M, N, K, stride_am, stride_ak, stride_bk, stride_bn, stri
 # prompt: run the code in the cell above for some example matrices
 
 # Generate random matrices
-def mm_triton_3d(a, b):
+def mm_triton_3d(a, b, activation = ""):
     # Check constraints.
     assert a.shape[2] == b.shape[1], "Incompatible dimensions"
     assert a.is_contiguous(), "Matrix A must be contiguous"
+    assert a.dtype == b.dtype , "Matrices must be the same type"
     _, M, K = a.shape
     _, K, N = b.shape
     L = a.shape[0]
     # Allocates output.
-    c = torch.zeros((L, M, N), device=a.device, dtype=torch.float32)
+    print(a.dtype)
+    c = torch.zeros((L, M, N), device=a.device, dtype=a.dtype)
     # 1D launch kernel where each block gets its own program.
     grid = lambda META: (triton.cdiv(M, 16) * triton.cdiv(N, 16), L)
     # print(grid((triton.cdiv(M, META['BLOCK_SIZE_M']) * triton.cdiv(N, META['BLOCK_SIZE_N']), )))
+
     matmul_3d[grid](
         a, b, c,  #
         M, N, K,  #
         a.stride(1), a.stride(2),  #
         b.stride(1), b.stride(2),  #
-        c.stride(1), c.stride(2),  #
-        BLOCK_SIZE_M=16, BLOCK_SIZE_N=16, BLOCK_SIZE_K=16, GROUP_SIZE_M=4
+        c.stride(1), c.stride(2),
+        activation,BLOCK_SIZE_M=16, 
+        BLOCK_SIZE_N=16, BLOCK_SIZE_K=16, 
+        GROUP_SIZE_M=4
     )
     return c
