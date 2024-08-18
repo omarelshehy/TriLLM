@@ -128,7 +128,6 @@ def add_mm_triton(a, b, Bias):
     c = torch.empty((M, N), device=a.device, dtype=torch.float32)
     assert c.shape[0] == Bias.shape[0]
     Bias = torch.broadcast_to(Bias, (M, N))
-    print(Bias)
     # 1D launch kernel where each block gets its own program.
     grid = lambda META: (triton.cdiv(M, META['BLOCK_SIZE_M']) * triton.cdiv(N, META['BLOCK_SIZE_N']),)
     # print(grid((triton.cdiv(M, META['BLOCK_SIZE_M']) * triton.cdiv(N, META['BLOCK_SIZE_N']), )))
@@ -166,7 +165,7 @@ def mm_triton_2d(a, b, activation=""):
 
 @triton.jit
 def matmul_3d(A, B, C, M, N, K, stride_am, stride_ak, stride_bk, stride_bn, stride_cm, stride_cn,
-              activation, BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
+              ACTIVATION: tl.constexpr, BLOCK_SIZE_M: tl.constexpr, BLOCK_SIZE_N: tl.constexpr, BLOCK_SIZE_K: tl.constexpr,
               GROUP_SIZE_M: tl.constexpr):
     pid = tl.program_id(axis=0)
     pid_batch = tl.program_id(axis=1)
@@ -201,8 +200,8 @@ def matmul_3d(A, B, C, M, N, K, stride_am, stride_ak, stride_bk, stride_bn, stri
         acc += tl.dot(a, b)
         A += BLOCK_SIZE_K * stride_ak
         B += BLOCK_SIZE_K * stride_bk
-    if activation:
-        acc *= tl.sigmoid(acc)
+    if ACTIVATION == "silu":
+        acc = acc.to(tl.float32) * tl.sigmoid(acc.to(tl.float32))
 
     C = C + rc + (rm[:, None] * stride_cm + rn[None, :] * stride_cn)
     mask = (rm[:, None] < M) & (rn[None, :] < N)
@@ -221,7 +220,6 @@ def mm_triton_3d(a, b, activation = ""):
     _, K, N = b.shape
     L = a.shape[0]
     # Allocates output.
-    print(a.dtype)
     c = torch.zeros((L, M, N), device=a.device, dtype=a.dtype)
     # 1D launch kernel where each block gets its own program.
     grid = lambda META: (triton.cdiv(M, 16) * triton.cdiv(N, 16), L)
@@ -233,8 +231,7 @@ def mm_triton_3d(a, b, activation = ""):
         a.stride(1), a.stride(2),  #
         b.stride(1), b.stride(2),  #
         c.stride(1), c.stride(2),
-        activation,BLOCK_SIZE_M=16, 
-        BLOCK_SIZE_N=16, BLOCK_SIZE_K=16, 
-        GROUP_SIZE_M=4
+        ACTIVATION= activation, BLOCK_SIZE_M=16, BLOCK_SIZE_N=16,
+        BLOCK_SIZE_K=16, GROUP_SIZE_M=4
     )
     return c
