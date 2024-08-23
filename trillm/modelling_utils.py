@@ -1,13 +1,25 @@
 import torch
+from triton_functions import triton_element_wise_multiplication
 
 def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
-    # Utility function code here...
-    pass
+    """This is the equivalent of torch.repeat_interleave(x, dim=1, repeats=n_rep). The hidden states go from (batch,
+    num_key_value_heads, seqlen, head_dim) to (batch, num_attention_heads, seqlen, head_dim)"""
+    batch, num_key_value_heads, slen, head_dim = hidden_states.shape
+    if n_rep == 1:
+        return hidden_states
+    hidden_states = hidden_states[:, :, None, :, :].expand(batch, num_key_value_heads, n_rep, slen, head_dim)
+    return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
+
 
 def apply_rotary_pos_emb(q, k, cos, sin, unsqueeze_dim=1):
-    # Utility function code here...
-    pass
+    cos = cos.unsqueeze(unsqueeze_dim)
+    sin = sin.unsqueeze(unsqueeze_dim)
+    q_embed = triton_element_wise_multiplication(q, cos) + triton_element_wise_multiplication(rotate_half(q), sin)
+    k_embed = triton_element_wise_multiplication(k, cos) + triton_element_wise_multiplication(rotate_half(k), sin)
+    return q_embed, k_embed
+
 
 def rotate_half(x):
-    # Utility function code here...
-    pass
+    x1 = x[..., : x.shape[-1] // 2]
+    x2 = x[..., x.shape[-1] // 2:]
+    return torch.cat((-x2, x1), dim=-1)

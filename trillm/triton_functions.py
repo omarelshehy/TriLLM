@@ -1,8 +1,9 @@
 import torch
 from torch.autograd import Function
-from TriLLM.trillm.flash_attention import flash_attn_triton
-from TriLLM.trillm.utils import ewm_triton, triton_cos, triton_sin
-from TriLLM.trillm.gemm import mm_triton_3d
+from trillm.kernels.flash_attention import flash_attn_triton
+from trillm.kernels.utils import ewm_triton, triton_cos, triton_sin
+from trillm.kernels.gemm import mm_triton_3d
+
 
 class _sdpa_flash_attention(Function):
     @staticmethod
@@ -14,6 +15,7 @@ class _sdpa_flash_attention(Function):
     def backward(ctx, grad_out):
         pass
 
+
 class _bmm(Function):
     @staticmethod
     def forward(ctx, x, y, activation=''):
@@ -23,6 +25,7 @@ class _bmm(Function):
     @staticmethod
     def backward(ctx, grad_out):
         pass
+
 
 class _element_wise_multiplication(Function):
     @staticmethod
@@ -34,6 +37,7 @@ class _element_wise_multiplication(Function):
     def backward(ctx, grad_out):
         pass
 
+
 class _cos_func(Function):
     @staticmethod
     def forward(ctx, x):
@@ -44,6 +48,7 @@ class _cos_func(Function):
     def backward(ctx, grad_out):
         pass
 
+
 class _sin_func(Function):
     @staticmethod
     def forward(ctx, x):
@@ -53,6 +58,7 @@ class _sin_func(Function):
     @staticmethod
     def backward(ctx, grad_out):
         pass
+
 
 triton_sdpa_flash_attention = _sdpa_flash_attention.apply
 triton_bmm = _bmm.apply
