@@ -1,9 +1,8 @@
 import torch
 from torch import nn
-from typing import Optional, Tuple
 from .triton_functions import (triton_sdpa_flash_attention, triton_bmm,
-                               triton_element_wise_multiplication, triton_cos_func, triton_sin_func)
-from modelling_utils import repeat_kv, apply_rotary_pos_emb, rotate_half
+                               triton_element_wise_multiplication)
+from modelling_utils import repeat_kv, apply_rotary_pos_emb
 import math
 from transformers.models.mistral.modeling_mistral import MistralRotaryEmbedding
 

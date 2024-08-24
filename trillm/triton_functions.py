@@ -1,4 +1,3 @@
-import torch
 from torch.autograd import Function
 from trillm.kernels.flash_attention import flash_attn_triton
 from trillm.kernels.utils import ewm_triton, triton_cos, triton_sin
